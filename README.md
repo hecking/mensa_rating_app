@@ -2,13 +2,6 @@
 
 Lightweight web frontend for student restaurant menus, ratings, and meal suggestions.
 
-## Why this setup
-
-- No framework, no bundler, no build step
-- Easy to understand and modify
-- Works by opening one HTML file
-- Stores ratings in browser localStorage
-
 ## Run
 
 Option 1 (simplest):
