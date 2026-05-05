@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mensa Rating</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="container">
+      <h1>Mensa Rating</h1>
+      <p>Weekly student restaurant menus with ratings and suggestions.</p>
+      <div id="auth-status" class="meta"></div>
+    </header>
+
+    <main class="container layout">
+      <section class="card">
+        <h2>Account</h2>
+        <form id="register-form">
+          <h3>Register</h3>
+          <label for="register-name">Name</label>
+          <input id="register-name" name="name" required />
+          <label for="register-email">Email</label>
+          <input id="register-email" name="email" type="email" required />
+          <label for="register-password">Password</label>
+          <input id="register-password" name="password" type="password" required />
+          <button type="submit">Create Account</button>
+        </form>
+
+        <form id="login-form">
+          <h3>Login</h3>
+          <label for="login-email">Email</label>
+          <input id="login-email" name="email" type="email" required />
+          <label for="login-password">Password</label>
+          <input id="login-password" name="password" type="password" required />
+          <button type="submit">Log In</button>
+        </form>
+        <button id="logout-button" type="button" hidden>Log Out</button>
+      </section>
+
+      <section class="card">
+        <div class="list-header">
+          <h2>Weekly Menu</h2>
+          <select id="week-select"></select>
+        </div>
+        <p class="meta">Menus are Monday to Friday and change every week.</p>
+        <div id="menu-grid"></div>
+      </section>
+
+      <section class="card auth-only" hidden>
+        <h2>Rate a Meal</h2>
+        <form id="rating-form">
+          <label for="rating-week">Week</label>
+          <select id="rating-week" name="weekKey" required></select>
+
+          <label for="rating-day">Day</label>
+          <select id="rating-day" name="day" required>
+            <option value="Monday">Monday</option>
+            <option value="Tuesday">Tuesday</option>
+            <option value="Wednesday">Wednesday</option>
+            <option value="Thursday">Thursday</option>
+            <option value="Friday">Friday</option>
+          </select>
+
+          <label for="rating-meal">Meal</label>
+          <input id="rating-meal" name="meal" required placeholder="Meal name" />
+
+          <label for="score">Stars</label>
+          <select id="score" name="score" required>
+            <option value="" disabled selected>Select stars</option>
+            <option value="5">5</option>
+            <option value="4">4</option>
+            <option value="3">3</option>
+            <option value="2">2</option>
+            <option value="1">1</option>
+          </select>
+
+          <label for="comment">Comment (optional)</label>
+          <textarea id="comment" name="comment" rows="3"></textarea>
+
+          <label for="food-pic">Food Picture (optional)</label>
+          <input id="food-pic" name="photo" type="file" accept="image/*" />
+
+          <button type="submit">Save Rating</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Ratings</h2>
+        <p id="empty-ratings">No ratings yet.</p>
+        <ul id="ratings-list"></ul>
+      </section>
+
+      <section class="card auth-only" hidden>
+        <h2>Meal Suggestions</h2>
+        <form id="suggestion-form">
+          <label for="suggestion-title">Suggestion Title</label>
+          <input id="suggestion-title" name="title" required placeholder="e.g. Vegan dumplings" />
+          <label for="suggestion-recipe">Recipe Upload</label>
+          <input id="suggestion-recipe" name="recipe" type="file" required />
+          <button type="submit">Submit Suggestion</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Community Suggestions</h2>
+        <p id="empty-suggestions">No suggestions yet.</p>
+        <ul id="suggestions-list"></ul>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
