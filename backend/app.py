@@ -9,6 +9,7 @@ from functools import wraps
 from flask import Flask, g, jsonify, request
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(APP_DIR, "mensa.db")
 
 app = Flask(__name__)
 
@@ -38,7 +39,9 @@ def default_meals_by_day():
 
 
 def init_db():
-    # Create tables and dummy data
+    dao = DAO(DB_PATH)
+    dao.init_db()
+    dao.close()
 
 
 @app.after_request
