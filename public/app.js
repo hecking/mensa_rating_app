@@ -1,8 +1,5 @@
-const USERS_KEY = "mensa-users-v1";
-const SESSION_KEY = "mensa-session-v1";
-const MENUS_KEY = "mensa-menus-v1";
-const RATINGS_KEY = "mensa-ratings-v2";
-const SUGGESTIONS_KEY = "mensa-suggestions-v1";
+const API_BASE = "http://127.0.0.1:5000/api";
+const SESSION_KEY = "mensa-session-v2";
 
 const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
@@ -24,22 +21,10 @@ const suggestionForm = document.getElementById("suggestion-form");
 const suggestionsList = document.getElementById("suggestions-list");
 const emptySuggestions = document.getElementById("empty-suggestions");
 
-let users = loadArray(USERS_KEY);
 let session = loadObject(SESSION_KEY);
-let menus = loadMenus();
-let ratings = loadArray(RATINGS_KEY);
-let suggestions = loadArray(SUGGESTIONS_KEY);
-
-function loadArray(key) {
-  const raw = localStorage.getItem(key);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
+let menus = [];
+let ratings = [];
+let suggestions = [];
 
 function loadObject(key) {
   const raw = localStorage.getItem(key);
@@ -63,45 +48,8 @@ function getWeekKey(date = new Date()) {
   return `${date.getFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
-function nextWeeks(count = 4) {
-  const start = new Date();
-  return Array.from({ length: count }, (_, i) => {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i * 7);
-    return getWeekKey(d);
-  });
-}
-
-function defaultMealsFor(weekKey) {
-  return {
-    weekKey,
-    days: {
-      Monday: ["Pasta Arrabbiata", "Vegan Bowl", "Chicken Wrap"],
-      Tuesday: ["Potato Soup", "Tofu Stir Fry", "Fish Curry"],
-      Wednesday: ["Lentil Stew", "Veggie Burger", "Beef Chili"],
-      Thursday: ["Pumpkin Risotto", "Falafel Plate", "Turkey Rice"],
-      Friday: ["Spinach Lasagna", "Sushi Bowl", "Pizza Margherita"],
-    },
-  };
-}
-
-function loadMenus() {
-  const existing = loadArray(MENUS_KEY);
-  const weekKeys = nextWeeks(6);
-  const byWeek = new Map(existing.map((item) => [item.weekKey, item]));
-  weekKeys.forEach((weekKey) => {
-    if (!byWeek.has(weekKey)) {
-      byWeek.set(weekKey, defaultMealsFor(weekKey));
-    }
-  });
-  const merged = [...byWeek.values()].sort((a, b) => a.weekKey.localeCompare(b.weekKey));
-  save(MENUS_KEY, merged);
-  return merged;
-}
-
 function currentUser() {
-  if (!session?.email) return null;
-  return users.find((user) => user.email === session.email) ?? null;
+  return session?.user ?? null;
 }
 
 function updateAuthUI() {
@@ -115,6 +63,11 @@ function updateAuthUI() {
 }
 
 function renderWeekOptions() {
+  if (menus.length === 0) {
+    weekSelect.innerHTML = "";
+    ratingWeekSelect.innerHTML = "";
+    return;
+  }
   const options = menus.map((menu) => `<option value="${menu.weekKey}">${menu.weekKey}</option>`).join("");
   weekSelect.innerHTML = options;
   ratingWeekSelect.innerHTML = options;
@@ -167,7 +120,7 @@ function renderRatings() {
       const li = document.createElement("li");
       li.className = "rating-item";
       li.innerHTML = `
-        <strong>${escapeHtml(item.meal)}</strong> (${escapeHtml(item.day)}, ${escapeHtml(item.weekKey)})
+        <strong>${escapeHtml(item.dishName || item.meal)}</strong> (${escapeHtml(item.day)}, ${escapeHtml(item.weekKey)})
         <div class="meta">${escapeHtml(item.userName)} • ${"★".repeat(item.score)}${"☆".repeat(5 - item.score)}</div>
         ${item.comment ? `<p>${escapeHtml(item.comment)}</p>` : ""}
         ${item.photoDataUrl ? `<img class="image-preview" src="${item.photoDataUrl}" alt="Food image uploaded by student">` : ""}
@@ -187,82 +140,156 @@ function renderSuggestions() {
   const user = currentUser();
   suggestions
     .slice()
-    .sort((a, b) => b.supporters.length - a.supporters.length)
+    .sort((a, b) => b.supportCount - a.supportCount)
     .forEach((item) => {
-      const supported = Boolean(user && item.supporters.includes(user.email));
+      const supported = Boolean(user && item.supportedByCurrentUser);
       const li = document.createElement("li");
       li.className = "rating-item";
       li.innerHTML = `
         <strong>${escapeHtml(item.title)}</strong>
-        <div class="meta">by ${escapeHtml(item.createdByName)} • 👍 ${item.supporters.length}</div>
-        <p><a href="${item.recipeDataUrl}" download="${escapeHtml(item.recipeName)}">Download recipe: ${escapeHtml(item.recipeName)}</a></p>
+        <div class="meta">by ${escapeHtml(item.createdByName)} • 👍 ${item.supportCount}</div>
+        <p><button type="button" class="recipe-button" data-id="${escapeHtml(item.id)}">Download recipe: ${escapeHtml(item.recipeName || "recipe")}</button></p>
       `;
       const btn = document.createElement("button");
       btn.className = "thumb-button";
       btn.textContent = supported ? "Supported" : "👍 Support";
       btn.disabled = !user || supported;
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click", async () => {
         const activeUser = currentUser();
         if (!activeUser) return;
-        const target = suggestions.find((entry) => entry.id === item.id);
-        if (!target || target.supporters.includes(activeUser.email)) return;
-        target.supporters.push(activeUser.email);
-        save(SUGGESTIONS_KEY, suggestions);
-        renderSuggestions();
+        const response = await apiFetch(`/suggestions/${encodeURIComponent(item.id)}/support`, {
+          method: "POST",
+          auth: true,
+        });
+        if (!response.ok) return;
+        await refreshSuggestions();
       });
       li.appendChild(btn);
+      li.querySelector(".recipe-button")?.addEventListener("click", async () => {
+        const response = await apiFetch(`/suggestions/${encodeURIComponent(item.id)}/recipe`);
+        if (!response.ok) return;
+        const data = await response.json();
+        const href = `data:application/octet-stream;base64,${data.dataBase64}`;
+        const a = document.createElement("a");
+        a.href = href;
+        a.download = data.fileName || "recipe";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      });
       suggestionsList.appendChild(li);
     });
 }
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("Could not read file."));
-    reader.readAsDataURL(file);
+async function apiFetch(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (options.json && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (options.auth && session?.token) {
+    headers.set("Authorization", `Bearer ${session.token}`);
+  }
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: options.method || "GET",
+    headers,
+    body: options.json ? JSON.stringify(options.json) : options.body,
   });
+  return response;
 }
 
-registerForm.addEventListener("submit", (event) => {
+async function refreshWeeksAndMenu() {
+  const response = await apiFetch("/weeks");
+  if (!response.ok) return;
+  const data = await response.json();
+  const weekKeys = Array.isArray(data.weeks) ? data.weeks : [];
+  menus = [];
+  for (const weekKey of weekKeys) {
+    const menuRes = await apiFetch(`/menus/${encodeURIComponent(weekKey)}`);
+    if (!menuRes.ok) continue;
+    const menuData = await menuRes.json();
+    menus.push({ weekKey: menuData.weekKey, days: menuData.days || {} });
+  }
+  renderWeekOptions();
+  renderMenu();
+}
+
+async function refreshRatings() {
+  const response = await apiFetch("/ratings");
+  if (!response.ok) return;
+  const data = await response.json();
+  ratings = Array.isArray(data.ratings) ? data.ratings : [];
+  for (const item of ratings) {
+    item.photoDataUrl = "";
+    if (item.hasPhoto && item.id) {
+      const photoRes = await apiFetch(`/ratings/${encodeURIComponent(item.id)}/photo`);
+      if (!photoRes.ok) continue;
+      const photo = await photoRes.json();
+      item.photoDataUrl = `data:image/*;base64,${photo.dataBase64}`;
+    }
+  }
+  renderRatings();
+}
+
+async function refreshSuggestions() {
+  const response = await apiFetch("/suggestions");
+  if (!response.ok) return;
+  const data = await response.json();
+  suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+  suggestions = suggestions.map((item) => ({
+    ...item,
+    supportedByCurrentUser: false,
+  }));
+  renderSuggestions();
+}
+
+registerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = new FormData(registerForm);
   const name = String(data.get("name")).trim();
   const email = String(data.get("email")).trim().toLowerCase();
   const password = String(data.get("password"));
   if (!name || !email || !password) return;
-  if (users.some((user) => user.email === email)) {
-    alert("Email already exists.");
+  const response = await apiFetch("/auth/register", {
+    method: "POST",
+    json: { name, email, password },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    alert(body.error || "Registration failed.");
     return;
   }
-  users.push({ name, email, password });
-  save(USERS_KEY, users);
   registerForm.reset();
   alert("Account created. You can now log in.");
 });
 
-loginForm.addEventListener("submit", (event) => {
+loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = new FormData(loginForm);
   const email = String(data.get("email")).trim().toLowerCase();
   const password = String(data.get("password"));
-  const user = users.find((entry) => entry.email === email && entry.password === password);
-  if (!user) {
-    alert("Invalid email or password.");
+  const response = await apiFetch("/auth/login", {
+    method: "POST",
+    json: { email, password },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    alert(body.error || "Invalid email or password.");
     return;
   }
-  session = { email: user.email };
+  const body = await response.json();
+  session = { token: body.token, user: body.user };
   save(SESSION_KEY, session);
   loginForm.reset();
   updateAuthUI();
-  renderSuggestions();
+  await refreshSuggestions();
 });
 
-logoutButton.addEventListener("click", () => {
+logoutButton.addEventListener("click", async () => {
+  await apiFetch("/auth/logout", { method: "POST", auth: true });
   session = null;
   localStorage.removeItem(SESSION_KEY);
   updateAuthUI();
-  renderSuggestions();
+  await refreshSuggestions();
 });
 
 weekSelect.addEventListener("change", () => {
@@ -278,28 +305,19 @@ ratingForm.addEventListener("submit", async (event) => {
     return;
   }
   const data = new FormData(ratingForm);
-  const file = data.get("photo");
-  let photoDataUrl = "";
-  if (file instanceof File && file.size > 0) {
-    photoDataUrl = await fileToDataUrl(file);
+  const response = await apiFetch("/ratings", {
+    method: "POST",
+    body: data,
+    auth: true,
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    alert(body.error || "Could not save rating.");
+    return;
   }
-  const entry = {
-    id: crypto.randomUUID(),
-    userEmail: user.email,
-    userName: user.name,
-    weekKey: String(data.get("weekKey")),
-    day: String(data.get("day")),
-    meal: String(data.get("meal")).trim(),
-    score: Number(data.get("score")),
-    comment: String(data.get("comment")).trim(),
-    photoDataUrl,
-    createdAt: new Date().toISOString(),
-  };
-  ratings.unshift(entry);
-  save(RATINGS_KEY, ratings);
   ratingForm.reset();
   ratingWeekSelect.value = weekSelect.value;
-  renderRatings();
+  await refreshRatings();
 });
 
 suggestionForm.addEventListener("submit", async (event) => {
@@ -310,30 +328,25 @@ suggestionForm.addEventListener("submit", async (event) => {
     return;
   }
   const data = new FormData(suggestionForm);
-  const title = String(data.get("title")).trim();
-  const recipe = data.get("recipe");
-  if (!(recipe instanceof File) || recipe.size === 0) {
-    alert("Please upload a recipe file.");
+  const response = await apiFetch("/suggestions", {
+    method: "POST",
+    body: data,
+    auth: true,
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    alert(body.error || "Could not submit suggestion.");
     return;
   }
-  const suggestion = {
-    id: crypto.randomUUID(),
-    title,
-    createdByEmail: user.email,
-    createdByName: user.name,
-    recipeName: recipe.name,
-    recipeDataUrl: await fileToDataUrl(recipe),
-    supporters: [user.email],
-    createdAt: new Date().toISOString(),
-  };
-  suggestions.unshift(suggestion);
-  save(SUGGESTIONS_KEY, suggestions);
   suggestionForm.reset();
-  renderSuggestions();
+  await refreshSuggestions();
 });
 
-updateAuthUI();
-renderWeekOptions();
-renderMenu();
-renderRatings();
-renderSuggestions();
+async function init() {
+  updateAuthUI();
+  await refreshWeeksAndMenu();
+  await refreshRatings();
+  await refreshSuggestions();
+}
+
+init();
